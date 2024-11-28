@@ -4,6 +4,7 @@ const http = require('http');
 const getUserDetailsFromToken = require('../helpers/getUserDetailsFromToken');
 const UserModel = require('../models/UserModel');
 const { ConversationModel, MessageModel } = require('../models/Conversation');
+const getConversation = require('../helpers/getConversation');
 const app = express();
 
 // Socket connection
@@ -43,6 +44,18 @@ io.on('connection', async (socket) => {
             online: onlineUser.has(userId)
         }
         socket.emit('message-user', payload)
+
+
+
+        //Get previous message
+        const getConversationMessage = await ConversationModel.findOne({
+            "$or": [
+                { sender: user?._id, receiver: userId },
+                { sender: userId, receiver: user?._id }
+            ]
+        }).populate('messages').sort({ updatedAt: -1 });
+
+        socket.emit('message', getConversationMessage?.messages || []);
     })
 
     // New message
@@ -86,12 +99,24 @@ io.on('connection', async (socket) => {
         }).populate('messages').sort({ updatedAt: -1 });
 
 
-        io.to(data?.sender).emit('message', getConversationMessage.messages || []);
-        io.to(data?.receiver).emit('message', getConversationMessage.messages || []);
+        io.to(data?.sender).emit('message', getConversationMessage?.messages || []);
+        io.to(data?.receiver).emit('message', getConversationMessage?.messages || []);
+
+        // send conversation
+        const conversationSender = await getConversation(data?.sender);
+        const conversationReceiver = await getConversation(data?.receiver);
+
+        io.to(data?.sender).emit('conversation', conversationSender);
+        io.to(data?.receiver).emit('conversation', conversationReceiver);
 
     })
 
+    // sidebar
+    socket.on('sidebar', async (currentUserId) => {
+        const conversation = await getConversation(currentUserId);
+        socket.emit('conversation', conversation);
 
+    })
 
     // disconnected
     socket.on('disconnect', () => {
